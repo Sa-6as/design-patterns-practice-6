@@ -1,0 +1,273 @@
+import java.util.Scanner;
+
+// Перечисление класса обслуживания
+enum ServiceClass {
+    ECONOMY, BUSINESS
+}
+
+// Перечисление типа пассажира
+enum PassengerType {
+    ADULT, CHILD, SENIOR
+}
+
+// Данные о поездке
+class TripData {
+    private double distance;
+    private ServiceClass serviceClass;
+    private PassengerType passengerType;
+    private int passengers;
+    private boolean hasBaggage;
+    private boolean hasTransfer;
+
+    public TripData(double distance, ServiceClass serviceClass, PassengerType passengerType,
+                    int passengers, boolean hasBaggage, boolean hasTransfer) {
+        this.distance = distance;
+        this.serviceClass = serviceClass;
+        this.passengerType = passengerType;
+        this.passengers = passengers;
+        this.hasBaggage = hasBaggage;
+        this.hasTransfer = hasTransfer;
+    }
+
+    public double getDistance() { return distance; }
+    public ServiceClass getServiceClass() { return serviceClass; }
+    public PassengerType getPassengerType() { return passengerType; }
+    public int getPassengers() { return passengers; }
+    public boolean isHasBaggage() { return hasBaggage; }
+    public boolean isHasTransfer() { return hasTransfer; }
+}
+
+// Интерфейс стратегии расчета стоимости
+interface ICostCalculationStrategy {
+    double calculateCost(TripData data);
+    String getTransportName();
+}
+
+// Стратегия - самолет
+class AirplaneCostStrategy implements ICostCalculationStrategy {
+    private static final double BASE_RATE = 15.0; // за км
+    private static final double FUEL_TAX = 0.05;
+
+    @Override
+    public double calculateCost(TripData data) {
+        double cost = data.getDistance() * BASE_RATE;
+
+        if (data.getServiceClass() == ServiceClass.BUSINESS) {
+            cost *= 2.5;
+        }
+
+        cost += cost * FUEL_TAX;
+
+        if (data.isHasBaggage()) {
+            cost += 5000;
+        }
+        if (data.isHasTransfer()) {
+            cost += 8000;
+        }
+
+        cost = applyDiscount(cost, data.getPassengerType());
+        cost *= data.getPassengers();
+        return cost;
+    }
+
+    @Override
+    public String getTransportName() { return "Самолет"; }
+
+    private double applyDiscount(double cost, PassengerType type) {
+        switch (type) {
+            case CHILD: return cost * 0.5;
+            case SENIOR: return cost * 0.7;
+            default: return cost;
+        }
+    }
+}
+
+// Стратегия - поезд
+class TrainCostStrategy implements ICostCalculationStrategy {
+    private static final double BASE_RATE = 5.0;
+
+    @Override
+    public double calculateCost(TripData data) {
+        double cost = data.getDistance() * BASE_RATE;
+
+        if (data.getServiceClass() == ServiceClass.BUSINESS) {
+            cost *= 1.8;
+        }
+
+        if (data.isHasBaggage()) {
+            cost += 2000;
+        }
+        if (data.isHasTransfer()) {
+            cost += 3000;
+        }
+
+        cost = applyDiscount(cost, data.getPassengerType());
+        cost *= data.getPassengers();
+
+        if (data.getPassengers() >= 5) {
+            cost *= 0.9;
+        }
+        return cost;
+    }
+
+    @Override
+    public String getTransportName() { return "Поезд"; }
+
+    private double applyDiscount(double cost, PassengerType type) {
+        switch (type) {
+            case CHILD: return cost * 0.6;
+            case SENIOR: return cost * 0.75;
+            default: return cost;
+        }
+    }
+}
+
+// Стратегия - автобус
+class BusCostStrategy implements ICostCalculationStrategy {
+    private static final double BASE_RATE = 3.0;
+
+    @Override
+    public double calculateCost(TripData data) {
+        double cost = data.getDistance() * BASE_RATE;
+
+        if (data.getServiceClass() == ServiceClass.BUSINESS) {
+            cost *= 1.5;
+        }
+
+        if (data.isHasBaggage()) {
+            cost += 1000;
+        }
+
+        cost = applyDiscount(cost, data.getPassengerType());
+        cost *= data.getPassengers();
+
+        if (data.getPassengers() >= 10) {
+            cost *= 0.85;
+        }
+        return cost;
+    }
+
+    @Override
+    public String getTransportName() { return "Автобус"; }
+
+    private double applyDiscount(double cost, PassengerType type) {
+        switch (type) {
+            case CHILD: return cost * 0.5;
+            case SENIOR: return cost * 0.65;
+            default: return cost;
+        }
+    }
+}
+
+// Контекст бронирования
+class TravelBookingContext {
+    private ICostCalculationStrategy strategy;
+
+    public void setStrategy(ICostCalculationStrategy strategy) {
+        this.strategy = strategy;
+    }
+
+    public void calculateAndDisplay(TripData data) {
+        if (strategy == null) {
+            System.out.println("Ошибка: стратегия расчета не задана!");
+            return;
+        }
+        double cost = strategy.calculateCost(data);
+        System.out.println("\n--- Результат расчета ---");
+        System.out.println("Транспорт: " + strategy.getTransportName());
+        System.out.println("Расстояние: " + data.getDistance() + " км");
+        System.out.println("Класс: " + (data.getServiceClass() == ServiceClass.BUSINESS ? "Бизнес" : "Эконом"));
+        System.out.println("Тип пассажира: " + getPassengerTypeName(data.getPassengerType()));
+        System.out.println("Кол-во пассажиров: " + data.getPassengers());
+        System.out.println("Багаж: " + (data.isHasBaggage() ? "Да" : "Нет"));
+        System.out.println("С пересадкой: " + (data.isHasTransfer() ? "Да" : "Нет"));
+        System.out.println("Итого: " + String.format("%.2f", cost) + " тг");
+    }
+
+    private String getPassengerTypeName(PassengerType type) {
+        switch (type) {
+            case CHILD: return "Ребенок";
+            case SENIOR: return "Пенсионер";
+            default: return "Взрослый";
+        }
+    }
+}
+
+// Главный класс
+public class Task3_TravelBooking {
+    public static void main(String[] args) {
+        Scanner scanner = new Scanner(System.in);
+        TravelBookingContext context = new TravelBookingContext();
+
+        System.out.println("=== Система бронирования путешествий ===");
+
+        boolean running = true;
+        while (running) {
+            try {
+                System.out.println("\nВыберите транспорт:");
+                System.out.println("1 - Самолет");
+                System.out.println("2 - Поезд");
+                System.out.println("3 - Автобус");
+                System.out.println("0 - Выход");
+                System.out.print("Ваш выбор: ");
+
+                int transportChoice = scanner.nextInt();
+                if (transportChoice == 0) {
+                    running = false;
+                    continue;
+                }
+
+                switch (transportChoice) {
+                    case 1: context.setStrategy(new AirplaneCostStrategy()); break;
+                    case 2: context.setStrategy(new TrainCostStrategy()); break;
+                    case 3: context.setStrategy(new BusCostStrategy()); break;
+                    default:
+                        System.out.println("Неверный выбор транспорта!");
+                        continue;
+                }
+
+                System.out.print("Расстояние (км): ");
+                double distance = scanner.nextDouble();
+                if (distance <= 0) {
+                    System.out.println("Ошибка: расстояние должно быть положительным!");
+                    continue;
+                }
+
+                System.out.print("Класс (1 - Эконом, 2 - Бизнес): ");
+                int classChoice = scanner.nextInt();
+                ServiceClass serviceClass = classChoice == 2 ? ServiceClass.BUSINESS : ServiceClass.ECONOMY;
+
+                System.out.print("Тип пассажира (1 - Взрослый, 2 - Ребенок, 3 - Пенсионер): ");
+                int typeChoice = scanner.nextInt();
+                PassengerType passengerType;
+                switch (typeChoice) {
+                    case 2: passengerType = PassengerType.CHILD; break;
+                    case 3: passengerType = PassengerType.SENIOR; break;
+                    default: passengerType = PassengerType.ADULT;
+                }
+
+                System.out.print("Количество пассажиров: ");
+                int passengers = scanner.nextInt();
+                if (passengers <= 0) {
+                    System.out.println("Ошибка: количество пассажиров должно быть больше 0!");
+                    continue;
+                }
+
+                System.out.print("Багаж (1 - Да, 0 - Нет): ");
+                boolean baggage = scanner.nextInt() == 1;
+
+                System.out.print("С пересадкой (1 - Да, 0 - Нет): ");
+                boolean transfer = scanner.nextInt() == 1;
+
+                TripData data = new TripData(distance, serviceClass, passengerType, passengers, baggage, transfer);
+                context.calculateAndDisplay(data);
+
+            } catch (Exception e) {
+                System.out.println("Ошибка ввода! Попробуйте снова.");
+                scanner.nextLine();
+            }
+        }
+        System.out.println("Выход из программы.");
+        scanner.close();
+    }
+}
