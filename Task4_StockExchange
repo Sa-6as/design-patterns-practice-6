@@ -1,0 +1,266 @@
+import java.util.*;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.concurrent.*;
+
+// Интерфейс наблюдателя
+interface IStockObserver {
+    void onPriceChanged(String stock, double oldPrice, double newPrice);
+    String getName();
+}
+
+// Интерфейс субъекта
+interface IStockSubject {
+    void subscribe(IStockObserver observer, String stock);
+    void unsubscribe(IStockObserver observer, String stock);
+    void notifySubscribers(String stock, double oldPrice, double newPrice);
+}
+
+// Логгер
+class EventLogger {
+    private static final DateTimeFormatter formatter = DateTimeFormatter.ofPattern("HH:mm:ss");
+    private static List<String> logs = new ArrayList<>();
+
+    public static void log(String message) {
+        String entry = "[" + LocalDateTime.now().format(formatter) + "] " + message;
+        logs.add(entry);
+        System.out.println("LOG: " + entry);
+    }
+
+    public static void printAllLogs() {
+        System.out.println("\n=== Лог событий ===");
+        for (String log : logs) {
+            System.out.println(log);
+        }
+    }
+}
+
+// Биржа
+class StockExchange implements IStockSubject {
+    private Map<String, Double> stocks = new HashMap<>();
+    private Map<String, List<IStockObserver>> subscriptions = new HashMap<>();
+    private Map<String, Map<String, Integer>> notificationCount = new HashMap<>();
+    private ExecutorService executor = Executors.newFixedThreadPool(4);
+
+    public void addStock(String name, double price) {
+        stocks.put(name, price);
+        subscriptions.putIfAbsent(name, new ArrayList<>());
+        EventLogger.log("Акция " + name + " добавлена с ценой " + price);
+    }
+
+    @Override
+    public void subscribe(IStockObserver observer, String stock) {
+        if (!subscriptions.containsKey(stock)) {
+            System.out.println("Акция " + stock + " не найдена на бирже!");
+            return;
+        }
+        subscriptions.get(stock).add(observer);
+        notificationCount.computeIfAbsent(observer.getName(), k -> new HashMap<>()).put(stock, 0);
+        EventLogger.log(observer.getName() + " подписался на " + stock);
+    }
+
+    @Override
+    public void unsubscribe(IStockObserver observer, String stock) {
+        if (subscriptions.containsKey(stock)) {
+            subscriptions.get(stock).remove(observer);
+            EventLogger.log(observer.getName() + " отписался от " + stock);
+        }
+    }
+
+    @Override
+    public void notifySubscribers(String stock, double oldPrice, double newPrice) {
+        List<IStockObserver> observers = subscriptions.getOrDefault(stock, new ArrayList<>());
+        for (IStockObserver observer : observers) {
+            // Асинхронное уведомление
+            executor.submit(() -> {
+                observer.onPriceChanged(stock, oldPrice, newPrice);
+            });
+            notificationCount.computeIfAbsent(observer.getName(), k -> new HashMap<>())
+                    .merge(stock, 1, Integer::sum);
+        }
+    }
+
+    public void updatePrice(String stock, double newPrice) {
+        if (!stocks.containsKey(stock)) {
+            System.out.println("Акция " + stock + " не найдена!");
+            return;
+        }
+        double oldPrice = stocks.get(stock);
+        stocks.put(stock, newPrice);
+        EventLogger.log("Цена " + stock + ": " + oldPrice + " -> " + newPrice);
+        notifySubscribers(stock, oldPrice, newPrice);
+
+        try { Thread.sleep(100); } catch (InterruptedException e) {}
+    }
+
+    public void simulateEvent(String eventName) {
+        System.out.println("\n>>> СОБЫТИЕ: " + eventName + " <<<");
+        EventLogger.log("Событие на рынке: " + eventName);
+    }
+
+    public void printReport() {
+        System.out.println("\n=== Отчет по подписчикам ===");
+        for (Map.Entry<String, List<IStockObserver>> entry : subscriptions.entrySet()) {
+            System.out.println("Акция: " + entry.getKey());
+            for (IStockObserver obs : entry.getValue()) {
+                int count = notificationCount
+                        .getOrDefault(obs.getName(), new HashMap<>())
+                        .getOrDefault(entry.getKey(), 0);
+                System.out.println("  - " + obs.getName() + " (уведомлений: " + count + ")");
+            }
+        }
+    }
+
+    public void shutdown() {
+        executor.shutdown();
+        try { executor.awaitTermination(2, TimeUnit.SECONDS); } catch (InterruptedException e) {}
+    }
+}
+
+// Трейдер
+class StockTrader implements IStockObserver {
+    private String name;
+
+    public StockTrader(String name) {
+        this.name = name;
+    }
+
+    @Override
+    public void onPriceChanged(String stock, double oldPrice, double newPrice) {
+        double change = newPrice - oldPrice;
+        String direction = change > 0 ? "▲" : "▼";
+        System.out.println("[Трейдер " + name + "] " + stock + " " + direction +
+                " " + String.format("%.2f", oldPrice) + " -> " + String.format("%.2f", newPrice));
+    }
+
+    @Override
+    public String getName() { return "Трейдер " + name; }
+}
+
+// Торговый робот
+class TradingBot implements IStockObserver {
+    private String name;
+    private double buyThreshold;
+    private double sellThreshold;
+
+    public TradingBot(String name, double buyThreshold, double sellThreshold) {
+        this.name = name;
+        this.buyThreshold = buyThreshold;
+        this.sellThreshold = sellThreshold;
+    }
+
+    @Override
+    public void onPriceChanged(String stock, double oldPrice, double newPrice) {
+        if (newPrice <= buyThreshold) {
+            System.out.println("[Робот " + name + "] ПОКУПКА " + stock +
+                    " по цене " + String.format("%.2f", newPrice) + " (порог: <=" + buyThreshold + ")");
+        } else if (newPrice >= sellThreshold) {
+            System.out.println("[Робот " + name + "] ПРОДАЖА " + stock +
+                    " по цене " + String.format("%.2f", newPrice) + " (порог: >=" + sellThreshold + ")");
+        } else {
+            System.out.println("[Робот " + name + "] " + stock + " = " +
+                    String.format("%.2f", newPrice) + " - ожидание...");
+        }
+    }
+
+    @Override
+    public String getName() { return "Робот " + name; }
+}
+
+// Email уведомления (с фильтром по порогу изменения)
+class EmailNotifier implements IStockObserver {
+    private String email;
+    private double changeThreshold; // минимальный % изменения для уведомления
+
+    public EmailNotifier(String email, double changeThreshold) {
+        this.email = email;
+        this.changeThreshold = changeThreshold;
+    }
+
+    @Override
+    public void onPriceChanged(String stock, double oldPrice, double newPrice) {
+        double changePercent = Math.abs((newPrice - oldPrice) / oldPrice) * 100;
+        if (changePercent >= changeThreshold) {
+            System.out.println("[Email -> " + email + "] Акция " + stock +
+                    " изменилась на " + String.format("%.1f", changePercent) + "% " +
+                    "(" + String.format("%.2f", oldPrice) + " -> " + String.format("%.2f", newPrice) + ")");
+        }
+    }
+
+    @Override
+    public String getName() { return "Email " + email; }
+}
+
+// Мобильное приложение (с фильтром - только рост)
+class MobileNotifier implements IStockObserver {
+    private String appName;
+
+    public MobileNotifier(String appName) {
+        this.appName = appName;
+    }
+
+    @Override
+    public void onPriceChanged(String stock, double oldPrice, double newPrice) {
+        if (newPrice > oldPrice) {
+            System.out.println("[" + appName + " Push] " + stock + " растет! " +
+                    String.format("%.2f", oldPrice) + " -> " + String.format("%.2f", newPrice));
+        }
+    }
+
+    @Override
+    public String getName() { return "App " + appName; }
+}
+
+// Главный класс
+public class Task4_StockExchange {
+    public static void main(String[] args) {
+        StockExchange exchange = new StockExchange();
+
+        // Добавляем акции
+        exchange.addStock("AAPL", 150.0);
+        exchange.addStock("GOOGL", 2800.0);
+        exchange.addStock("TSLA", 700.0);
+
+        // Создаем наблюдателей
+        StockTrader trader = new StockTrader("Ержан");
+        TradingBot bot = new TradingBot("AlphaBot", 140.0, 160.0);
+        EmailNotifier emailNotifier = new EmailNotifier("trader@mail.kz", 2.0);
+        MobileNotifier mobileApp = new MobileNotifier("InvestApp");
+
+        // Подписки
+        System.out.println("\n=== Подписка на акции ===");
+        exchange.subscribe(trader, "AAPL");
+        exchange.subscribe(trader, "GOOGL");
+        exchange.subscribe(bot, "AAPL");
+        exchange.subscribe(emailNotifier, "AAPL");
+        exchange.subscribe(emailNotifier, "TSLA");
+        exchange.subscribe(mobileApp, "GOOGL");
+        exchange.subscribe(mobileApp, "TSLA");
+
+        // Торговые сценарии
+        System.out.println("\n=== Начало торгов ===");
+
+        exchange.updatePrice("AAPL", 155.0);
+        exchange.updatePrice("GOOGL", 2750.0);
+
+        exchange.simulateEvent("Выход квартального отчета Apple");
+        exchange.updatePrice("AAPL", 165.0);
+
+        exchange.simulateEvent("Падение рынка на фоне новостей");
+        exchange.updatePrice("AAPL", 135.0);
+        exchange.updatePrice("TSLA", 680.0);
+
+        // Отписка
+        System.out.println("\n=== Отписка трейдера от GOOGL ===");
+        exchange.unsubscribe(trader, "GOOGL");
+
+        exchange.updatePrice("GOOGL", 2900.0);
+        exchange.updatePrice("TSLA", 750.0);
+
+        // Отчет
+        exchange.printReport();
+        EventLogger.printAllLogs();
+
+        exchange.shutdown();
+    }
+}
